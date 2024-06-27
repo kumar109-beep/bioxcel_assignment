@@ -35,6 +35,9 @@
 
 # Guide To Start Backend & Frontend Servers
 
+- Clone the GIT repository
+  - `git clone https://github.com/kumar109-beep/bioxcel_assignment/tree/master`
+
 ## Start the Django Backend Server (on Linux)
 
 1. Check if Python is installed on the system.
