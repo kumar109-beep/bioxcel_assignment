@@ -1,0 +1,381 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Network Graph Visualization</title>
+  <!-- Load D3.js -->
+  <script src="https://d3js.org/d3.v7.min.js"></script>
+  <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+  <!-- Bootstrap CSS -->
+  <link
+    href="https://stackpath.bootstrapcdn.com/bootstrap/4.5.0/css/bootstrap.min.css"
+    rel="stylesheet"/>
+  <style>
+    .node {
+      fill: #5631a8;
+      stroke: #bd7979;
+      stroke-width: 2px;
+      cursor: pointer;
+    }
+    .highlighted {
+      fill: orange;
+      stroke: #bd7979;
+      stroke-width: 2px;
+    }
+    .childnode {
+      fill: #31a847;
+      stroke: #58b2a7;
+      stroke-width: 1.5px;
+    }
+    .link {
+      fill: none;
+      stroke: #2e2929;
+      stroke-width: 1px;
+    }
+    body,
+    #graph-container {
+      text-align: center;
+    }
+    #graph-container {
+      height: 80vh;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      overflow: hidden;
+      position: relative;
+    }
+    #graph {
+      width: 100%;
+      height: 100%;
+      max-width: 100%;
+      max-height: 100%;
+      overflow: hidden;
+    }
+    #parent-nodes {
+      margin-top: 5px;
+      text-align: left;
+      max-height: 100vh;
+      overflow-y: auto;
+      padding: 5px;
+      background-color: #f9f9f9;
+    }
+    #parent-list,
+    #child-list {
+      list-style-type: none;
+      padding: 0;
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: flex-start;
+    }
+    #parent-list li,
+    #child-list li {
+      margin: 5px;
+      position: relative;
+      border-radius: 5px;
+      padding: 3px;
+      color: white;
+      font-size: 12px;
+    }
+    #parent-list li {
+      background-color: #5631a8;
+    }
+    #child-list li {
+      background-color: #31a847;
+    }
+    #parent-list li:before,
+    #child-list li:before {
+      font-size: 15px;
+      position: absolute;
+      left: 0;
+      top: 50%;
+      transform: translateY(-50%);
+    }
+    #parent-search {
+      margin-bottom: 10px;
+      padding: 5px;
+      border: 1px solid #ccc;
+      border-radius: 5px;
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h3>Bioxcel Assignment - Full Stack Developer</h3>
+  </header>
+
+  <div class="container-fluid">
+    <div class="row">
+      <div class="col-md-3 mt-2">
+        <div class="card">
+          <div id="parent-nodes">
+            <b>
+              Directly Connected Parent Nodes with:
+              <span id="selected-parent">!</span>
+            </b>
+            <hr />
+            <input
+              type="text"
+              id="parent-search"
+              class="form-control mb-2"
+              placeholder="Search parent nodes..."
+            />
+            <ul id="parent-list"></ul>
+            <hr />
+            <b>Connected Child Nodes</b>
+            <ul id="child-list"></ul>
+          </div>
+        </div>
+      </div>
+      <div class="col-md-9 mt-2">
+        <div id="graph-container">
+          <svg
+            id="graph"
+            width="100%"
+            height="100%"
+            viewBox="0 0 800 600"
+            preserveAspectRatio="xMidYMid meet"
+          ></svg>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Bootstrap JS -->
+  <script src="https://stackpath.bootstrapcdn.com/bootstrap/4.5.0/js/bootstrap.min.js"></script>
+  <script>
+    document.addEventListener("DOMContentLoaded", function () {
+      let svg = d3.select("#graph");
+      let nodes = [];
+      let edges = [];
+
+      fetch("/api/graph/")
+        .then((response) => response.json())
+        .then((data) => {
+          nodes = data.nodes.map((node) => ({ id: node, isChild: false }));
+          edges = data.edges.map((edge) => ({
+            source: edge.source,
+            target: edge.target,
+          }));
+
+          let simulation = d3
+            .forceSimulation(nodes)
+            .force("link", d3.forceLink(edges).id((d) => d.id))
+            .force("charge", d3.forceManyBody().strength(-400))
+            .force("center", d3.forceCenter(400, 300));
+
+          simulation.alphaTarget(0);
+
+          let link = svg
+            .selectAll(".link")
+            .data(edges)
+            .enter()
+            .append("line")
+            .attr("class", "link");
+
+          let node = svg
+            .selectAll(".node")
+            .data(nodes)
+            .enter()
+            .append("circle")
+            .attr("class", "node")
+            .attr("r", 8)
+            .call(drag(simulation))
+            .on("click", clickNode);
+
+          let nodeLabels = svg
+            .selectAll(".node-label")
+            .data(nodes)
+            .enter()
+            .append("text")
+            .attr("class", "node-label")
+            .attr("font-size", "10px")
+            .attr("dx", 10)
+            .attr("dy", ".35em")
+            .text((d) => d.id);
+
+          simulation.on("tick", () => {
+            link
+              .attr("x1", (d) => d.source.x)
+              .attr("y1", (d) => d.source.y)
+              .attr("x2", (d) => d.target.x)
+              .attr("y2", (d) => d.target.y);
+
+            node.attr("cx", (d) => d.x).attr("cy", (d) => d.y);
+
+            nodeLabels.attr("x", (d) => d.x).attr("y", (d) => d.y);
+          });
+
+          /**
+           * Drag functionality for nodes.
+           * @param {object} simulation - The D3 force simulation.
+           * @returns {object} - D3 drag behavior.
+           */
+          function drag(simulation) {
+            function dragstarted(event, d) {
+              if (!event.active) simulation.alphaTarget(0.3).restart();
+              d.fx = d.x;
+              d.fy = d.y;
+            }
+
+            function dragged(event, d) {
+              d.fx = event.x;
+              d.fy = event.y;
+            }
+
+            function dragended(event, d) {
+              if (!event.active) simulation.alphaTarget(0);
+              d.fx = null;
+              d.fy = null;
+            }
+
+            return d3.drag()
+              .on("start", dragstarted)
+              .on("drag", dragged)
+              .on("end", dragended);
+          }
+
+          /**
+           * Handle node click event.
+           * Fetches and displays connected parent and child nodes.
+           * @param {object} event - The click event.
+           * @param {object} d - The clicked node data.
+           */
+          function clickNode(event, d) {
+            document.getElementById("selected-parent").innerHTML = d.id;
+
+            fetch(`/api/child-nodes/${d.id}/`)
+              .then((response) => response.json())
+              .then((childNodesData) => {
+                let newNodes = childNodesData.map((node) => ({ id: node, isChild: true }));
+                let newEdges = childNodesData.map((node) => ({ source: d.id, target: node }));
+
+                fetch(`/api/parent-connected-nodes/${d.id}/`)
+                  .then((response) => response.json())
+                  .then((parentNodesData) => {
+                    let newParentNodes = parentNodesData.map((node) => ({ id: node, isChild: false }));
+
+                    newParentNodes.forEach((node) => {
+                      if (!nodes.some((n) => n.id === node.id)) {
+                        nodes.push(node);
+                      }
+                    });
+
+                    let parentEdges = parentNodesData.map((node) => ({ source: node, target: d.id }));
+                    edges.push(...parentEdges);
+
+                    newNodes.forEach((node) => {
+                      if (!nodes.some((n) => n.id === node.id)) {
+                        nodes.push(node);
+                      }
+                    });
+
+                    edges.push(...newEdges);
+
+                    simulation.nodes(nodes);
+                    simulation.force("link").links(edges);
+                    simulation.alpha(1).restart();
+
+                    link = link.data(edges);
+                    link.exit().remove();
+                    link = link.enter().append("line").attr("class", "link").merge(link);
+
+                    node = node.data(nodes);
+                    node.exit().remove();
+                    node = node.enter().append("circle")
+                      .attr("class", (d) => d.isChild ? "childnode" : "node")
+                      .attr("r", 6)
+                      .call(drag(simulation))
+                      .on("click", clickNode)
+                      .merge(node);
+
+                    nodeLabels = nodeLabels.data(nodes);
+                    nodeLabels.exit().remove();
+                    nodeLabels = nodeLabels.enter().append("text")
+                      .attr("class", "node-label")
+                      .attr("font-size", "10px")
+                      .attr("dx", 10)
+                      .attr("dy", ".35em")
+                      .text((d) => d.id)
+                      .merge(nodeLabels);
+
+                    updateParentNodesList(parentNodesData);
+                    updateChildNodesList(childNodesData);
+                    highlightParentNode(d.id);
+                  })
+                  .catch((error) => console.error("Error fetching parent nodes:", error));
+              })
+              .catch((error) => console.error("Error fetching child nodes:", error));
+          }
+
+          /**
+           * Update the list of parent nodes in the sidebar.
+           * @param {array} parentNodesData - Array of parent node IDs.
+           */
+          function updateParentNodesList(parentNodesData) {
+            let parentList = d3.select("#parent-list");
+            parentList.selectAll("li").remove();
+            parentList.selectAll("li")
+              .data(parentNodesData)
+              .enter()
+              .append("li")
+              .text((d) => d);
+          }
+
+          /**
+           * Update the list of child nodes in the sidebar.
+           * @param {array} childNodesData - Array of child node IDs.
+           */
+          function updateChildNodesList(childNodesData) {
+            let childList = d3.select("#child-list");
+            childList.selectAll("li").remove();
+            childList.selectAll("li")
+              .data(childNodesData)
+              .enter()
+              .append("li")
+              .text((d) => d);
+          }
+
+          /**
+           * Highlight a selected parent node in the graph.
+           * @param {string} parentNodeId - The ID of the parent node to highlight.
+           */
+          function highlightParentNode(parentNodeId) {
+            svg.selectAll(".node")
+              .attr("class", "node")
+              .attr("fill", "skyblue");
+
+            svg.selectAll(".node")
+              .filter((d) => d.id === parentNodeId)
+              .attr("class", "node highlighted")
+              .attr("fill", "orange");
+          }
+
+          /**
+           * Handle input event for parent node search.
+           * Filters and highlights matching parent nodes.
+           */
+          document.getElementById("parent-search").addEventListener("input", function () {
+            let searchTerm = this.value.trim().toLowerCase();
+            if (searchTerm.length === 0) return;
+
+            let filteredParentNodes = nodes.filter(
+              (node) => !node.isChild && node.id.toLowerCase().includes(searchTerm)
+            );
+
+            updateParentNodesList(filteredParentNodes.map((node) => node.id));
+
+            if (filteredParentNodes.length > 0) {
+              highlightParentNode(filteredParentNodes[0].id);
+            } else {
+              svg.selectAll(".node")
+                .attr("class", "node")
+                .attr("fill", "skyblue");
+            }
+          });
+        })
+        .catch((error) => console.error("Error fetching data:", error));
+    });
+  </script>
+</body>
+</html>
